@@ -1,17 +1,10 @@
-# https://machinelearningmastery.com/implement-simple-linear-regression-scratch-python/
-
-import csv
 import random
 import math
-import operator
 import pandas as pd
 import numpy as np
 
-from numpy.linalg import inv
-
-from sklearn.model_selection import train_test_split
-
-import matplotlib.pyplot as plt
+from sklearn import linear_model
+from sklearn.metrics import mean_squared_error, r2_score
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -19,69 +12,144 @@ logging.basicConfig(level=logging.INFO)
 
 class Dataloader:
     def __init__(self, path):
+        """ A dataloader class for handling dataset attributes and functions
+
+        Args:
+            path (str): path to the dataset csv file
+
+        Attributes:
+            data (pd.DataFrame): pandas dataframe containing the entire dataset
+            length (int): number of records in dataset
+            feature (pd.DataFrame): features dataframe
+            label (pd.DataFrame): label dataframe
+            num_features (int): number of features in the dataset
+        """
         self.data = pd.read_csv(path)
         self.length = len(self.data)
         self.drop_address()
-        self.normalize()
         self.feature, self.label = self.get_feature_label()
+        self.normalize()
         self.bias()
-        try:
-            self.num_features = self.feature.shape[1]
-        except IndexError:
-            self.num_features = 1
-        logging.info(f'Number of features {self.num_features}')
+        self.num_features = len(self.feature.iloc[0])
+        # logging.info(f'Number of features {self.num_features}')
 
-    def train_val_split(self):
-        X_train, X_test, y_train, y_test = train_test_split(self.feature, self.label, test_size=0.33, random_state=42)
-        return np.column_stack((X_train, y_train)), np.column_stack((X_test, y_test))
+    def train_val_split(self, pval=0.3):
+        """Split dataset into trainign and validation
+
+        Args:
+            pval (float): ratio of validation / training split
+
+        Returns:
+            train, val (dict, dict): training and validation datasets
+        """
+        slice = math.floor(self.length*pval)
+        ind = [i for i in range(self.length)]
+        random.shuffle(ind)
+        val = {'feature':self.feature.iloc[ind[:slice]], 'label':self.label.iloc[ind[:slice]]}
+        train = {'feature':self.feature.iloc[ind[slice:]], 'label':self.label.iloc[ind[slice:]]}
+        return train, val
 
     def drop_address(self):
-        self.data.drop(['Address'], axis=1,  inplace=True)
+        self.data.drop(columns=['Address'], inplace=True)
 
     def get_feature_label(self):
         # feature = self.data['Avg. Area Number of Rooms'].values
         # feature = self.data[['Avg. Area Number of Rooms', 'Avg. Area Income']].values
-        feature = self.data.loc[:, self.data.columns != 'Price'].values
-        label = self.data['Price'].values
+        feature = self.data.loc[:, self.data.columns != 'Price']
+        label = self.data['Price']
         return feature, label
 
     def normalize(self):
-        self.mean = self.data.mean()
-        self.std = self.data.std()
-        self.data=(self.data-self.mean)/self.std
+        self.feature = (self.feature-self.feature.min())/(self.feature.max()-self.feature.min())
 
     def bias(self):
-        pass
+        bias = [1] * self.length
+        self.feature['bias'] = bias
+        self.label['bias'] = bias
 
 
 class LinearRegression:
-    def __init__(self, path='./USA_Housing.csv'):
+    def __init__(self, path='./data/USA_Housing.csv'):
+        """A Linear Regression parent class
+
+        Args:
+            path (str): path to the dataset csv file
+
+        Attributes:
+            dataloader (obj): a Dataloader object
+            train (dict): training dataset with 'feature' and 'label' keys
+            val (dict): validation dataset with 'feature' and 'label' keys
+        """
         self.dataloader = Dataloader(path)
         self.train, self.val = self.dataloader.train_val_split()
-        self.b = None
+        self.coef = np.zeros(self.dataloader.num_features)
+
+    def get_R2(self):
+        y_pred = self.predict(self.val['feature'].values)
+        return r2_score(self.val['label'].values,y_pred)
+
+class ManualLR(LinearRegression):
+    """A manual linear regression class using numpy
+
+    Attributes:
+        coef (numpy.array): a matrix of coefficients for the linear equation
+    """
+    def __init__(self):
+        LinearRegression.__init__(self)
+        self.coef = np.zeros(self.dataloader.num_features)
 
     def fit(self):
-        X, y = self.train[:,:-1], self.train[:,1]
-        X = X.reshape((len(X), self.dataloader.num_features))   # Incase of 1D feature array
-        # linear least squares
-        self.b = inv(X.T.dot(X)).dot(X.T).dot(y)
-        logging.info(f'Learnt coefficients {self.b}')
+        x_train, y_train = self.train['feature'].values, self.train['label'].values
+        # Closed form solution
+        self.coef = np.linalg.pinv(x_train.T @ x_train) @ x_train.T @ y_train
+        # logging.info(f'Learnt coefficients {self.coef}')
 
-
-    def predict(self, X):
+    def predict(self, data):
         # predict using coefficients
-        return X.dot(self.b)
+        return np.dot(data, self.coef)
 
-    def get_mse(self):
+    def get_rmse(self):
         # Inference validation set
-        X, y = self.val[:,:-1], self.val[:,1]
-        X = X.reshape((len(X), self.dataloader.num_features))
-        y_hat = self.predict(X)
-        # Calculate MSE
-        return np.mean(np.square(y_hat - y))
+        y_pred = self.predict(self.val['feature'].values)
+        y = self.val['label'].values
+        # Calculate RMSE
+        return np.sqrt((np.sum((y_pred - y)**2)/len(y)))
+
+
+class SKLearnLR(LinearRegression):
+    def __init__(self):
+        """A linear regression class using sklearn libraries
+
+        Attributes:
+            model (object): a sklearn linear regression model object
+        """
+        LinearRegression.__init__(self)
+        self.model = None
+
+    def fit(self):
+        x_train, y_train = self.train['feature'].values, self.train['label'].values
+        self.model = linear_model.LinearRegression()
+        self.model.fit(x_train, y_train)
+        # logging.info(f'Learnt coefficients {self.model.coef_}')
+
+    def predict(self, data):
+        return self.model.predict(data)
+
+    def get_rmse(self):
+        y_pred = self.predict(self.val['feature'].values)
+        y = self.val['label'].values
+        return np.sqrt(mean_squared_error(y, y_pred)*len(y))
 
 
 if __name__ == '__main__':
-    lr = LinearRegression()
-    lr.fit()
-    print('MSE:', lr.get_mse())
+    # Perform LR manually using closed-form solution
+    lr1 = ManualLR()
+    lr1.fit()
+    logging.info(f'Manual LR: \tRMSE: {lr1.get_rmse()}\t R2: {lr1.get_R2()}')
+    del lr1
+
+    # Perform LR using the pre-built sklearn library
+    lr2 = SKLearnLR()
+    lr2.fit()
+    logging.info(f'SKLearn LR: \tRMSE: {lr2.get_rmse()}\t R2: {lr2.get_R2()}')
+    del lr2
