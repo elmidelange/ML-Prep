@@ -3,7 +3,6 @@
 ## 1. Linear Regression
 Dataset: [Kaggle - USA Housing Prices](https://www.kaggle.com/farhankarim1/usa-house-prices).     
 Goal: Predict the housing prices using linear regression. Try only using numpy and compare with sklearn.    
-Model Equation: 
 
 In linear regression we assume dependant variable y has a linear relationship with independant variables x. Therefore should be in the form: 
 ` y = wX + b `.    
