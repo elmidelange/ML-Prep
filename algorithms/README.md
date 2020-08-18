@@ -1,6 +1,6 @@
 # ML Algorithms from Scratch
 
-## 1. [Linear Regression](linear_regression.py)
+## [1. Linear Regression](linear_regression.py)
 Dataset: [Kaggle - USA Housing Prices](https://www.kaggle.com/farhankarim1/usa-house-prices).     
 Goal: Predict the housing prices using linear regression. Try only using numpy and compare with sklearn.    
 
